@@ -21,6 +21,7 @@ __pycache__/
 *.png
 *.pdf
 *.svg
+*.csv
 corner_*.png
 
 # Checkpoints de PyTorch / Emulador

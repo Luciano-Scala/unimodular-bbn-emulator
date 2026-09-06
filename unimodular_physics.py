@@ -82,6 +82,7 @@ def eps1_sinh2n(N, alpha, Nf, n):
     return out if out.size > 1 else out[0]
 
 
+
 EPS1_MODELS = {
     "tanh":   {"func": eps1_tanh,   "param_names": ("alpha", "Nf")},
     "sinh2n": {"func": eps1_sinh2n, "param_names": ("alpha", "Nf", "n")},
@@ -243,6 +244,21 @@ class UnimodularModel:
         """
         N0_proxy = self.params["Nf"] + N0_MINUS_NF_PROXY
         return self.Q_over_MP4(min(N0_proxy, self.N_max - 1e-6))
+
+    def max_abs_eps2_during_inflation(self, n_check=500):
+        """
+        eps2 = d(ln eps1)/dN (numérico), evaluado en [0, Nf]. Chequea la
+        condición de "transición suave" (Ec. 21 del paper: |eps2|<<1),
+        necesaria para que el cálculo del espectro primordial (Sec. IV)
+        sea válido. Un eps1(N) tipo escalón (alpha grande) viola esto
+        aunque pase el chequeo de min(eps1).
+        """
+        Nf = self.params["Nf"]
+        N_check = np.linspace(1e-3, Nf - 1e-3, n_check)
+        eps1_vals = self.eps1(N_check)
+        eps1_vals = np.maximum(eps1_vals, 1e-300)  # evita log(0)
+        dln_eps1_dN = np.gradient(np.log(eps1_vals), N_check)
+        return np.max(np.abs(dln_eps1_dN))
 
 
 if __name__ == "__main__":
