@@ -14,18 +14,16 @@ from emulator_model import BBNEmulator
 from unimodular_physics import UnimodularModel
 from mcmc_sampler import LOG10_LAMBDA_OBS
 from mcmc_sampler import passes_shape_prior
-from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
+# from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
+from bbn_evaluator import DNEFF_OBS, DNEFF_OBS_ERR
 
 CHI2_THRESHOLD = 5.99
 LATE_TIME_TOLERANCE_DEX = 0.5
 
 
 def compute_chi2_emu(emu, theta):
-    Yp_pred, DH_pred = emu.predict(theta)
-    chi2_Yp = ((Yp_pred - YP_OBS) / YP_ERR) ** 2
-    chi2_DH = ((DH_pred - DH_OBS) / DH_ERR) ** 2
-    return chi2_Yp + chi2_DH
-
+    dNeff_fo_pred, dNeff_db_pred = emu.predict(theta)
+    return ((dNeff_fo_pred - DNEFF_OBS) / DNEFF_OBS_ERR) ** 2
 
 def fractions_for_n(n_fixed, n_grid=120):
     bounds = MODEL_SPECS["sinh2n"]["bounds"]
@@ -62,7 +60,7 @@ def fractions_for_n(n_fixed, n_grid=120):
 
 
 if __name__ == "__main__":
-    n_values = np.linspace(0.5, 6.0, 20)  # cubre todo el rango del prior
+    n_values = np.linspace(0.05, 6.0, 25)  # antes: np.linspace(0.5, 6.0, 20)
     frac_bbn_list, frac_joint_list = [], []
 
     for n_val in n_values:

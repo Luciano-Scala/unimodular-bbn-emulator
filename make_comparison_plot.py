@@ -21,18 +21,16 @@ import matplotlib.pyplot as plt
 from unimodular_physics import UnimodularModel
 from mcmc_sampler import MODEL_SPECS, LOG10_LAMBDA_OBS,passes_shape_prior
 from emulator_model import BBNEmulator
-from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
+# from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
+from bbn_evaluator import DNEFF_OBS, DNEFF_OBS_ERR
 
 CHI2_THRESHOLD = 5.99
 LATE_TIME_TOLERANCE_DEX = 0.5
 
 
 def compute_chi2_emu(emu, theta):
-    Yp_pred, DH_pred = emu.predict(theta)
-    chi2_Yp = ((Yp_pred - YP_OBS) / YP_ERR) ** 2
-    chi2_DH = ((DH_pred - DH_OBS) / DH_ERR) ** 2
-    return chi2_Yp + chi2_DH
-
+    dNeff_fo_pred, dNeff_db_pred = emu.predict(theta)
+    return ((dNeff_fo_pred - DNEFF_OBS) / DNEFF_OBS_ERR) ** 2
 
 def find_representative_point(model_name, n_fixed=None, n_grid=150):
     bounds = MODEL_SPECS[model_name]["bounds"]
@@ -92,8 +90,14 @@ def make_plot():
 
     new_tanh_params, chi2_t, dex_t = find_representative_point("tanh")
 
-    # usar el n encontrado por el MCMC (0.58), no el 1.08 viejo
-    new_sinh2n_params, chi2_s, dex_s = find_representative_point("sinh2n", n_fixed=0.58)
+    # usar el n del MAP más reciente del MCMC, no un valor hardcodeado
+    import emcee
+    backend = emcee.backends.HDFBackend("chain_sinh2n_emu.h5", read_only=True)
+    chain = backend.get_chain(discard=backend.iteration // 4, flat=True)
+    n_from_map = float(chain[np.argmax(backend.get_log_prob(discard=backend.iteration // 4, flat=True)), 2])
+    print(f"Usando n={n_from_map:.4g} (MAP de la cadena actual)")
+
+    new_sinh2n_params, chi2_s, dex_s = find_representative_point("sinh2n", n_fixed=n_from_map)
 
     configs = [
         (original_model,

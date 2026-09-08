@@ -49,10 +49,12 @@ def params_to_features(df, model_name):
 
 
 def targets_from_df(df):
-    """Yp lineal, D/H en log10 (ver docstring del módulo)."""
-    Yp = df["Yp_pred"].values.astype(np.float64)
-    log10_DH = np.log10(df["DH_pred"].values.astype(np.float64))
-    return np.stack([Yp, log10_DH], axis=1)
+    """NUEVO: predice dNeff_fo y dNeff_db directamente (columnas ya
+    presentes en el CSV desde dataset_generator.py), en vez de Yp/log(D/H).
+    No hace falta regenerar el dataset."""
+    dNeff_fo = df["dNeff_fo"].values.astype(np.float64)
+    dNeff_db = df["dNeff_db"].values.astype(np.float64)
+    return np.stack([dNeff_fo, dNeff_db], axis=1)
 
 
 class Standardizer:
@@ -207,27 +209,26 @@ def train_emulator(model_name, csv_path, epochs=500, batch_size=256, lr=1e-3,
     # Validación en ESCALA FÍSICA (no en el espacio estandarizado/log):
     # esto es lo que realmente importa para el criterio de <0.1%.
     # ------------------------------------------------------------------
-    rel_err_Yp, rel_err_DH = _evaluate_physical_relative_error(
+    from bbn_evaluator import DNEFF_OBS_ERR
+
+    abs_err_fo, abs_err_db = _evaluate_physical_absolute_error(
         model, val_ds, x_scaler, y_scaler, device
     )
 
-    print("\n=== Error relativo en escala física (set de validación) ===")
-    print(f"Yp : mediana={np.median(rel_err_Yp)*100:.4f}%  "
-          f"máx={np.max(rel_err_Yp)*100:.4f}%")
-    print(f"D/H: mediana={np.median(rel_err_DH)*100:.4f}%  "
-          f"máx={np.max(rel_err_DH)*100:.4f}%")
+    print("\n=== Error absoluto en escala física (set de validación) ===")
+    print(f"dNeff_fo: mediana={np.median(abs_err_fo):.5f}  máx={np.max(abs_err_fo):.5f}")
+    print(f"dNeff_db: mediana={np.median(abs_err_db):.5f}  máx={np.max(abs_err_db):.5f}")
 
-    target = 0.1  # %
-    ok_Yp = np.median(rel_err_Yp) * 100 < target
-    ok_DH = np.median(rel_err_DH) * 100 < target
-    if ok_Yp and ok_DH:
-        print(f"OK: error mediano por debajo del objetivo de {target}%.")
+    # Objetivo: error << sigma observacional (DNEFF_OBS_ERR=0.070), para
+    # que el chi2 calculado con el emulador no se distorsione.
+    target_abs = 0.1 * DNEFF_OBS_ERR  # = 0.007
+    ok_fo = np.median(abs_err_fo) < target_abs
+    ok_db = np.median(abs_err_db) < target_abs
+    if ok_fo and ok_db:
+        print(f"OK: error mediano < {target_abs:.4f} (10% de sigma_obs={DNEFF_OBS_ERR}).")
     else:
-        print(f"AVISO: no se alcanzó el objetivo de {target}% de error mediano. "
-              "Sugerencias: más datos (aumentar n_valid en dataset_generator), "
-              "red más profunda/ancha, más epochs, o revisar si hay una "
-              "discontinuidad en la física (p.ej. cerca del floor de eps1 en "
-              "sinh2n) que la red no puede aproximar suavemente.")
+        print(f"AVISO: no se alcanzó el objetivo de {target_abs:.4f}. "
+              "Ver sugerencias habituales (más datos, red más grande, más epochs).")
 
     if out_path is None:
         out_path = f"emulator_{model_name}.pt"
@@ -249,29 +250,23 @@ def train_emulator(model_name, csv_path, epochs=500, batch_size=256, lr=1e-3,
     return model, x_scaler, y_scaler
 
 
-def _evaluate_physical_relative_error(model, val_ds, x_scaler, y_scaler, device):
+def _evaluate_physical_absolute_error(model, val_ds, x_scaler, y_scaler, device):
+    """
+    Error ABSOLUTO (no relativo): con targets que pueden ser ~0 (dNeff en
+    la meseta donde Gamma~0), el error relativo diverge sin que importe
+    para el chi2 real, que compara contra DNEFF_OBS_ERR (una escala
+    absoluta), no contra el valor verdadero.
+    """
     model.eval()
     Xs_val = val_ds.dataset.X[val_ds.indices].numpy()
     Ys_val = val_ds.dataset.Y[val_ds.indices].numpy()
-
     with torch.no_grad():
-        pred_s = model(torch.tensor(Xs_val, dtype=torch.float32).to(device))
-        pred_s = pred_s.cpu().numpy()
-
+        pred_s = model(torch.tensor(Xs_val, dtype=torch.float32).to(device)).cpu().numpy()
     pred_phys = y_scaler.inverse_transform(pred_s)
     true_phys = y_scaler.inverse_transform(Ys_val)
-
-    Yp_pred, log10DH_pred = pred_phys[:, 0], pred_phys[:, 1]
-    Yp_true, log10DH_true = true_phys[:, 0], true_phys[:, 1]
-
-    rel_err_Yp = np.abs(Yp_pred - Yp_true) / np.abs(Yp_true)
-    # D/H: reconstruir de log10 antes de comparar en escala física
-    DH_pred = 10 ** log10DH_pred
-    DH_true = 10 ** log10DH_true
-    rel_err_DH = np.abs(DH_pred - DH_true) / np.abs(DH_true)
-
-    return rel_err_Yp, rel_err_DH
-
+    abs_err_fo = np.abs(pred_phys[:, 0] - true_phys[:, 0])
+    abs_err_db = np.abs(pred_phys[:, 1] - true_phys[:, 1])
+    return abs_err_fo, abs_err_db
 
 # ----------------------------------------------------------------------
 # Inferencia: wrapper para usar como reemplazo del solver dentro del MCMC
@@ -317,9 +312,9 @@ class BBNEmulator:
             ).cpu().numpy()
 
         pred_phys = self.y_scaler.inverse_transform(pred_s)[0]
-        Yp_pred = float(pred_phys[0])
-        DH_pred = float(10 ** pred_phys[1])
-        return Yp_pred, DH_pred
+        dNeff_fo_pred = float(pred_phys[0])
+        dNeff_db_pred = float(pred_phys[1])
+        return dNeff_fo_pred, dNeff_db_pred
 
 
 if __name__ == "__main__":

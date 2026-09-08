@@ -38,7 +38,7 @@ import h5py
 
 from unimodular_physics import UnimodularModel
 from bbn_evaluator import bbn_chi2
-
+from bbn_evaluator import DNEFF_OBS, DNEFF_OBS_ERR
 # ----------------------------------------------------------------------
 # Constante cosmológica observada hoy, en unidades M_P^2 (calculada, no
 # hardcodeada al "~1e-122" redondeado del paper)
@@ -63,7 +63,7 @@ MODEL_SPECS = {
     "sinh2n": {
         "ndim": 3,
         "labels": [r"$\alpha$", r"$N_f$", r"$n$"],
-        "bounds": {"alpha": (1e-4, 1.0), "Nf": (60.0, 400.0), "n": (0.5, 6.0)},
+        "bounds": {"alpha": (1e-4, 1.0), "Nf": (60.0, 400.0), "n": (0.05, 6.0)},
         "log_param": {"alpha": True, "Nf": False, "n": False},
     },
 }
@@ -205,8 +205,8 @@ def initial_walkers(model_name, nwalkers, seed=0, max_tries=200):
         center = np.array([0.10, 280.0])
         spread = np.array([0.05, 40.0])
     elif model_name == "sinh2n":
-        center = np.array([0.10, 280.0, 2.0])
-        spread = np.array([0.05, 40.0, 1.0])
+        center = np.array([0.10, 280.0, 0.5])
+        spread = np.array([0.05, 40.0, 0.3])
     else:
         raise ValueError(model_name)
 
@@ -240,24 +240,12 @@ def _get_emulator(model_name):
 
 
 def log_likelihood_emulator(theta, model_name):
-    """
-    Versión acelerada de log_likelihood: usa la red entrenada en vez de
-    spline + root-finding + camb.bbn. El log_prior (validez física,
-    inflación real, prior suave de tiempos tardíos) sigue siendo EXACTO
-    -- solo se reemplaza el costo dominante (bbn_chi2).
-    """
-    from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
-
     emu = _get_emulator(model_name)
     try:
-        Yp_pred, DH_pred = emu.predict(theta)
+        dNeff_fo_pred, dNeff_db_pred = emu.predict(theta)
     except Exception:
         return -np.inf
-
-    chi2_Yp = ((Yp_pred - YP_OBS) / YP_ERR) ** 2
-    chi2_DH = ((DH_pred - DH_OBS) / DH_ERR) ** 2
-    chi2 = chi2_Yp + chi2_DH
-
+    chi2 = ((dNeff_fo_pred - DNEFF_OBS) / DNEFF_OBS_ERR) ** 2
     if not np.isfinite(chi2):
         return -np.inf
     return -0.5 * chi2

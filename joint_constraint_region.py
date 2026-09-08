@@ -13,18 +13,22 @@ import matplotlib.pyplot as plt
 from mcmc_sampler import MODEL_SPECS, LOG10_LAMBDA_OBS
 from unimodular_physics import UnimodularModel
 from emulator_model import BBNEmulator
-from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
+# from bbn_evaluator import YP_OBS, YP_ERR, DH_OBS, DH_ERR
+from bbn_evaluator import DNEFF_OBS, DNEFF_OBS_ERR
 
 CHI2_THRESHOLD = 5.99   # ~95% CL, 2 dof
 LATE_TIME_TOLERANCE_DEX = 0.5
 
 
-def compute_chi2_emu(emu, theta):
-    Yp_pred, DH_pred = emu.predict(theta)
-    chi2_Yp = ((Yp_pred - YP_OBS) / YP_ERR) ** 2
-    chi2_DH = ((DH_pred - DH_OBS) / DH_ERR) ** 2
-    return chi2_Yp + chi2_DH
+# def compute_chi2_emu(emu, theta):
+#     Yp_pred, DH_pred = emu.predict(theta)
+#     chi2_Yp = ((Yp_pred - YP_OBS) / YP_ERR) ** 2
+#     chi2_DH = ((DH_pred - DH_OBS) / DH_ERR) ** 2
+#     return chi2_Yp + chi2_DH
 
+def compute_chi2_emu(emu, theta):
+    dNeff_fo_pred, dNeff_db_pred = emu.predict(theta)
+    return ((dNeff_fo_pred - DNEFF_OBS) / DNEFF_OBS_ERR) ** 2
 
 def scan(model_name, n_fixed=None, n_grid=200, output_suffix=""):
     from mcmc_sampler import passes_shape_prior 
